@@ -1,0 +1,13 @@
+# Everything that must not end up in the build context
+target/
+*/target/
+.git/
+.github/
+.idea/
+.vscode/
+k8s/
+docs/
+*.md
+*.log
+.env
+compose.yaml

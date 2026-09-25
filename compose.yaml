@@ -1,4 +1,25 @@
 services:
+  # The application, built from the Dockerfile in this repository.
+  # Run `docker compose up --build` to get the whole system with one command.
+  app:
+    build: .
+    container_name: ledger-app
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DB_URL: jdbc:postgresql://postgres:5432/ledger
+      DB_USERNAME: ledger
+      DB_PASSWORD: ledger
+    ports:
+      - "8080:8080"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/actuator/health | grep -q UP"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+
   postgres:
     image: postgres:18-alpine
     container_name: ledger-postgres
