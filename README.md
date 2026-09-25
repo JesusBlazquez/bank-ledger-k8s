@@ -1,21 +1,28 @@
-# bank-ledger-hexagonal
+# bank-ledger-k8s
 
-[![CI](https://github.com/JesusBlazquez/bank-ledger-hexagonal/actions/workflows/ci.yml/badge.svg)](https://github.com/JesusBlazquez/bank-ledger-hexagonal/actions/workflows/ci.yml)
+[![CI](https://github.com/JesusBlazquez/bank-ledger-k8s/actions/workflows/ci.yml/badge.svg)](https://github.com/JesusBlazquez/bank-ledger-k8s/actions/workflows/ci.yml)
+[![Release](https://github.com/JesusBlazquez/bank-ledger-k8s/actions/workflows/release.yml/badge.svg)](https://github.com/JesusBlazquez/bank-ledger-k8s/actions/workflows/release.yml)
 ![Java](https://img.shields.io/badge/Java-21-orange)
 ![Spring Boot](https://img.shields.io/badge/Spring%20Boot-4.1-6DB33F)
 ![License](https://img.shields.io/badge/license-MIT-blue)
 
-A banking ledger: accounts, deposits, withdrawals and transfers with the business rules a real bank
-would need, built with hexagonal architecture and Domain-Driven Design.
+**How a Spring Boot service gets from a laptop to a Kubernetes cluster**: container image, manifests,
+pipeline and the checks in between.
+
+The application is the [bank ledger](https://github.com/JesusBlazquez/bank-ledger-hexagonal) —
+accounts, transfers and real domain rules with hexagonal architecture — forked at its `v1.0.0` tag.
+Its history is kept, so the split between "what the software does" and "how it is shipped" is
+visible in the commit log.
 
 ## The problem it solves
 
-Moving money is not a database update. A transfer has to respect the balance, a daily limit and the
-currency of both accounts, it must never be applied twice if the request is retried, and every
-movement has to leave a trace that can be audited afterwards.
+An application that only runs on the machine that built it is not finished. This repository answers
+the questions that come after the code works:
 
-This project implements those rules where they belong — in the domain model — so they cannot be
-bypassed by adding a new controller or a new screen.
+- How is it packaged so the image is small, reproducible and safe to run as a non-root user?
+- How does it run on Kubernetes: configuration, secrets, storage, health checks, zero-downtime deploys?
+- How do we know the deployment instructions still work? (The pipeline runs them on every change.)
+- How do we know the published image is not vulnerable, and that it really came from this repository?
 
 ## Architecture
 
@@ -63,7 +70,7 @@ on the domain's classpath.
 **Prerequisites:** JDK 21 and Docker.
 
 ```bash
-git clone https://github.com/JesusBlazquez/bank-ledger-hexagonal.git
+git clone https://github.com/JesusBlazquez/bank-ledger-k8s.git
 cd bank-ledger-hexagonal
 docker compose up -d                  # starts PostgreSQL
 ./mvnw package -DskipTests            # builds the three modules
@@ -97,6 +104,66 @@ the parent POM as well, which has no main class.
 Commands accept an `Idempotency-Key` header. Errors are returned as Problem Details (RFC 9457).
 Amounts travel as strings (`"100.00"`) so no client turns them into floating point numbers.
 
+## Running it on Kubernetes
+
+**Prerequisites:** Docker, kind and kubectl.
+
+```bash
+./scripts/deploy-kind.sh          # Windows: .\scripts\deploy-kind.ps1
+```
+
+One command creates a two-node kind cluster, installs the ingress controller, builds the image,
+loads it into the cluster, deploys everything and smoke-tests it through the ingress. This is the
+same script the pipeline runs, so these instructions cannot rot silently.
+
+```bash
+kubectl -n ledger get pods                          # what is running
+kubectl -n ledger port-forward svc/ledger-app 8080:80   # reach it without editing /etc/hosts
+kind delete cluster --name ledger                   # clean up
+```
+
+### What is deployed
+
+| Resource | Why |
+|---|---|
+| `Deployment` (app) | Rolling updates with `maxUnavailable: 0`: the new pod is ready before the old one goes |
+| `StatefulSet` + PVC (PostgreSQL) | Stable identity and storage that survives a restart |
+| `ConfigMap` / `Secret` | Configuration apart from the image; credentials apart from the configuration |
+| `Service` + `Ingress` | Stable in-cluster address and an entry point at `ledger.local` |
+| `PodDisruptionBudget` (prod) | A node drain can take pods down, but never all of them |
+
+Kustomize keeps one base and two overlays: `local` (single replica, image built on the machine) and
+`prod` (three replicas, spread across nodes, larger requests).
+
+### Three probes, three questions
+
+| Probe | Question | What a failure does |
+|---|---|---|
+| `startupProbe` | Has it finished booting? | Gives the JVM and Flyway time without a long liveness delay |
+| `readinessProbe` | Can it take traffic now? | Removes the pod from the Service; does not restart it |
+| `livenessProbe` | Is it stuck? | Restarts the container — which is why it does not check the database |
+
+A liveness probe that touches the database restarts every pod when the database blips, turning an
+incident into an outage.
+
+## The pipeline
+
+| Workflow | When | What it does |
+|---|---|---|
+| `ci.yml` | Every push and pull request | Formatting, 77 tests, renders both overlays and validates them against the Kubernetes schemas, then deploys to a throwaway kind cluster |
+| `release.yml` | On a `v*` tag | Builds for amd64 and arm64, pushes to GHCR with SBOM and provenance, fails on critical vulnerabilities (Trivy) and signs the image with cosign (keyless) |
+
+Splitting them is deliberate: a pipeline that takes ten minutes on every commit stops being read.
+The fast checks run always; the expensive ones run when something is published.
+
+Verifying a published image:
+
+```bash
+cosign verify ghcr.io/jesusblazquez/bank-ledger-k8s:v1.0.0 \
+  --certificate-identity-regexp 'https://github.com/JesusBlazquez/bank-ledger-k8s/.*' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com
+```
+
 ## Technical decisions
 
 Each decision is recorded in full as an [Architecture Decision Record](docs/adr/).
@@ -110,6 +177,11 @@ Each decision is recorded in full as an [Architecture Decision Record](docs/adr/
 | Idempotency enforced by a unique constraint | An application-level check loses under concurrency | [0006](docs/adr/0006-idempotency-via-unique-constraint.md) |
 | Daily limit tracked inside the aggregate | Keeps the rule testable without a database | [0007](docs/adr/0007-daily-limit-inside-the-aggregate.md) |
 | Testcontainers instead of H2 | H2 is not PostgreSQL, and the differences hide bugs | [0008](docs/adr/0008-testcontainers-over-h2.md) |
+| A separate repository for deployment | Keeps the application's history readable and the deployment concerns together | [0012](docs/adr/0012-separate-deployment-repository.md) |
+| Layered image, non-root, read-only filesystem | Small rebuilds and the security profile clusters expect | [0013](docs/adr/0013-layered-hardened-image.md) |
+| Kustomize instead of Helm | Plain YAML anyone can read, with overlays for the differences | [0014](docs/adr/0014-kustomize-over-helm.md) |
+| PostgreSQL inside the cluster | The demo runs with one command; production would use a managed database | [0015](docs/adr/0015-postgres-inside-the-cluster.md) |
+| The pipeline deploys before merging | Deployment instructions that are never executed are documentation, not proof | [0016](docs/adr/0016-pipeline-gates.md) |
 | JPA entities kept apart from the model | The aggregate should not carry a framework or the schema's shape | [0009](docs/adr/0009-separate-jpa-entities-from-the-domain.md) |
 | Errors as Problem Details (RFC 9457) | Clients branch on a stable `type`, not on English text | [0010](docs/adr/0010-errors-as-problem-details.md) |
 | Use cases wired by hand, not scanned | Keeps the application layer testable without Spring | [0011](docs/adr/0011-wire-use-cases-explicitly.md) |
