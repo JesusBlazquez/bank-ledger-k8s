@@ -39,6 +39,9 @@
     <jacoco.version>0.8.15</jacoco.version>
     <spotless.version>3.10.2</spotless.version>
     <springdoc.version>3.1.1</springdoc.version>
+    <!-- Ahead of the version Spring Boot 4.1.1 manages: 11.0.24 carries three critical CVEs that
+         the release pipeline refuses to publish. Remove this override once Boot ships 11.0.25. -->
+    <tomcat.version>11.0.25</tomcat.version>
     <testcontainers.version>2.0.5</testcontainers.version>
   </properties>
 
