@@ -23,6 +23,12 @@ jobs:
       - name: Check out code
         uses: actions/checkout@v7
 
+      # Image references must be lowercase, and a GitHub owner can have capital letters.
+      # docker/metadata-action lowercases them on its own; the steps that use the name directly
+      # (trivy, cosign) need it done here.
+      - name: Work out the lowercase image reference
+        run: echo "IMAGE=${REGISTRY}/${GITHUB_REPOSITORY,,}" >> "$GITHUB_ENV"
+
       # QEMU lets an amd64 runner build the arm64 image as well.
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v4
@@ -74,7 +80,7 @@ jobs:
               --ignore-unfixed \
               --exit-code 1 \
               --format table \
-              "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.push.outputs.digest }}"
+              "${IMAGE}@${{ steps.push.outputs.digest }}"
 
       - name: Install cosign
         uses: sigstore/cosign-installer@v3
@@ -83,8 +89,7 @@ jobs:
       # to store or rotate. Anyone can verify where the image came from.
       - name: Sign the image
         run: |
-          cosign sign --yes \
-            "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.push.outputs.digest }}"
+          cosign sign --yes "${IMAGE}@${{ steps.push.outputs.digest }}"
 
       - name: Summary
         run: |
