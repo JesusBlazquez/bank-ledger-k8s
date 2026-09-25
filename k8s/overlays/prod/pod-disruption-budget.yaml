@@ -1,0 +1,10 @@
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: ledger-app
+spec:
+  # A node drain may take pods down, but never all of them at once.
+  minAvailable: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: ledger-app

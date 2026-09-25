@@ -1,0 +1,15 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ledger-app
+spec:
+  template:
+    spec:
+      containers:
+        - name: app
+          # Without this, Kubernetes would try to pull an image that only exists inside the node.
+          imagePullPolicy: Never
+          resources:
+            requests:
+              cpu: 100m
+              memory: 384Mi

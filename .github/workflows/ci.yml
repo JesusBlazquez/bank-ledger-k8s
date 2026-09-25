@@ -39,5 +39,55 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: jacoco-report
-          path: target/site/jacoco/
+          path: '*/target/site/jacoco/'
           if-no-files-found: ignore
+
+  manifests:
+    name: Validate the Kubernetes manifests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v7
+
+      # Renders both overlays and checks every resource against the Kubernetes schemas.
+      # A typo in a manifest is caught here, in seconds, instead of on a cluster.
+      - name: Install kubeconform
+        run: |
+          curl -sSL https://github.com/yannh/kubeconform/releases/latest/download/kubeconform-linux-amd64.tar.gz \
+            | tar -xz -C /usr/local/bin kubeconform
+
+      - name: Render and validate
+        run: |
+          for overlay in local prod; do
+            echo "== $overlay"
+            kubectl kustomize "k8s/overlays/$overlay" \
+              | kubeconform -strict -summary -ignore-missing-schemas
+          done
+
+  deploy:
+    name: Deploy to a throwaway cluster
+    needs: [build, manifests]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v7
+
+      - name: Install kind
+        run: |
+          curl -sSLo kind https://kind.sigs.k8s.io/dl/v0.33.0/kind-linux-amd64
+          chmod +x kind && sudo mv kind /usr/local/bin/kind
+          kind version
+
+      # The same script that runs on a laptop: if this passes, the deployment instructions work.
+      - name: Create the cluster, build the image and deploy
+        run: ./scripts/deploy-kind.sh
+
+      - name: Show what is running
+        if: always()
+        run: |
+          kubectl -n ledger get pods -o wide
+          kubectl -n ledger describe deployment ledger-app | tail -30
+
+      - name: Application logs on failure
+        if: failure()
+        run: kubectl -n ledger logs deployment/ledger-app --tail=200 || true

@@ -1,0 +1,11 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ledger-config
+data:
+  # Non-secret configuration. Everything here can be read by anyone with access to the namespace.
+  DB_URL: jdbc:postgresql://ledger-postgres:5432/ledger
+  SPRING_PROFILES_ACTIVE: kubernetes
+  # Kubernetes asks two different questions: "are you alive?" and "can you take traffic?".
+  MANAGEMENT_ENDPOINT_HEALTH_PROBES_ENABLED: "true"
+  MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE: health,info

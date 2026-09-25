@@ -1,0 +1,25 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ledger-app
+spec:
+  # More than one replica so a node going down, or a rolling deploy, does not mean downtime.
+  replicas: 3
+  template:
+    spec:
+      # Spread the replicas across nodes instead of stacking them on the luckiest one.
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/name: ledger-app
+      containers:
+        - name: app
+          resources:
+            requests:
+              cpu: 500m
+              memory: 768Mi
+            limits:
+              memory: 1536Mi
