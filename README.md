@@ -71,9 +71,16 @@ on the domain's classpath.
 
 ```bash
 git clone https://github.com/JesusBlazquez/bank-ledger-k8s.git
-cd bank-ledger-hexagonal
-docker compose up -d                  # starts PostgreSQL
-./mvnw package -DskipTests            # builds the three modules
+cd bank-ledger-k8s
+docker compose up --build             # builds the image and starts the app with PostgreSQL
+```
+
+That is the whole system in one command. To run the application outside a container instead — handy
+while developing — start only the database and build locally:
+
+```bash
+docker compose up -d postgres
+./mvnw package -DskipTests
 java -jar infrastructure/target/infrastructure-0.1.0-SNAPSHOT.jar
 ```
 
